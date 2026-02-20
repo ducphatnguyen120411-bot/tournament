@@ -1,8 +1,10 @@
-const {
-  Client,
-  GatewayIntentBits,
-  PermissionsBitField,
-  SlashCommandBuilder,
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
+});
   REST,
   Routes,
   EmbedBuilder
