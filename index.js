@@ -1,88 +1,104 @@
-const { Client, GatewayIntentBits, EmbedBuilder } = require("discord.js");
+const { Client, GatewayIntentBits } = require("discord.js");
+const fs = require("fs");
+
+const TOKEN = process.env.TOKEN;
+const GUILD_ID = process.env.GUILD_ID;
+const REQUIRED_ROLE = "1471860721108123893";
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent,
+  ],
 });
 
-const DATA = {
-  setup: false,
-  channelId: null,
-  refereeRoleId: null,
-  teams: {},
-  matches: []
-};
+// ===== LOAD / SAVE DATA =====
+function loadData() {
+  if (!fs.existsSync("data.json")) return {};
+  return JSON.parse(fs.readFileSync("data.json", "utf8"));
+}
 
-// ===== BOT ONLINE =====
-client.once("ready", () => {
+function saveData(data) {
+  fs.writeFileSync("data.json", JSON.stringify(data, null, 2));
+}
+
+// ===== READY =====
+client.once("clientReady", () => {
   console.log(`✅ Bot online: ${client.user.tag}`);
 });
 
 // ===== MESSAGE HANDLER =====
-client.on("messageCreate", async (msg) => {
-  if (msg.author.bot) return;
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
 
-  // SETUP (admin only)
-  if (msg.content.startsWith("setup")) {
-    if (!msg.member.permissions.has("Administrator")) {
-      return msg.reply("❌ Chỉ admin được setup");
+  const args = message.content.trim().split(/\s+/);
+  const cmd = args.shift()?.toLowerCase();
+
+  const guild = await client.guilds.fetch(GUILD_ID);
+  const role = guild.roles.cache.get(REQUIRED_ROLE);
+  if (!role) return message.reply("❌ Không tìm thấy role BXH");
+
+  let data = loadData();
+
+  // ===== WIN / LOSE =====
+  if (cmd === "win" || cmd === "lose") {
+    const member = message.mentions.members.first();
+    if (!member) return message.reply("❌ Mention người cần cộng điểm");
+
+    if (!member.roles.cache.has(REQUIRED_ROLE)) {
+      return message.reply("❌ Người này không thuộc role thi đấu");
     }
 
-    const role = msg.mentions.roles.first();
-    if (!role) return msg.reply("❌ Tag role referee");
+    if (!data[member.id]) {
+      data[member.id] = { win: 0, lose: 0 };
+    }
 
-    DATA.setup = true;
-    DATA.channelId = msg.channel.id;
-    DATA.refereeRoleId = role.id;
+    data[member.id][cmd]++;
+    saveData(data);
 
-    return msg.reply("✅ Setup xong. Dùng kênh này để ghi kết quả.");
-  }
-
-  // CHỈ HOẠT ĐỘNG SAU SETUP
-  if (!DATA.setup) return;
-  if (msg.channel.id !== DATA.channelId) return;
-
-  // CHECK ROLE REFEREE
-  if (!msg.member.roles.cache.has(DATA.refereeRoleId)) return;
-
-  // FORMAT: TeamA 13-10 TeamB
-  const match = msg.content.match(/(.+)\s(\d+)\s*-\s*(\d+)\s(.+)/);
-  if (!match) return;
-
-  const teamA = match[1].trim();
-  const scoreA = parseInt(match[2]);
-  const scoreB = parseInt(match[3]);
-  const teamB = match[4].trim();
-
-  if (!DATA.teams[teamA]) DATA.teams[teamA] = 0;
-  if (!DATA.teams[teamB]) DATA.teams[teamB] = 0;
-
-  if (scoreA > scoreB) {
-    DATA.teams[teamA] += 3;
-  } else {
-    DATA.teams[teamB] += 3;
-  }
-
-  const embed = new EmbedBuilder()
-    .setTitle("📊 BẢNG XẾP HẠNG")
-    .setColor(0x00ff99)
-    .setDescription(
-      Object.entries(DATA.teams)
-        .sort((a, b) => b[1] - a[1])
-        .map(([t, p], i) => `**${i + 1}. ${t}** — ${p} điểm`)
-        .join("\n")
+    return message.reply(
+      `✅ Đã cộng **${cmd.toUpperCase()}** cho ${member.user.tag}`
     );
+  }
 
-  msg.channel.send({ embeds: [embed] });
+  // ===== BXH =====
+  if (cmd === "bxh") {
+    // đảm bảo 100% member có role đều có data
+    for (const [id] of role.members) {
+      if (!data[id]) {
+        data[id] = { win: 0, lose: 0 };
+      }
+    }
+    saveData(data);
+
+    const list = Object.entries(data)
+      .filter(([id]) => role.members.has(id))
+      .map(([id, d]) => ({
+        id,
+        win: d.win,
+        lose: d.lose,
+      }))
+      .sort((a, b) => {
+        if (b.win !== a.win) return b.win - a.win;
+        return a.lose - b.lose;
+      });
+
+    if (list.length === 0) {
+      return message.reply("❌ BXH trống");
+    }
+
+    let text = "🏆 **BXH GIẢI ĐẤU** 🏆\n\n";
+    list.forEach((u, i) => {
+      const user = guild.members.cache.get(u.id);
+      text += `${i + 1}. ${user ? user.user.tag : u.id} — ${u.win} WIN | ${u.lose} LOSE\n`;
+    });
+
+    return message.reply(text);
+  }
 });
 
 // ===== LOGIN =====
-if (!process.env.BOT_TOKEN) {
-  console.log("❌ THIẾU BOT_TOKEN");
-  process.exit(1);
-}
-
-client.login(process.env.BOT_TOKEN);
+client.login(TOKEN);
