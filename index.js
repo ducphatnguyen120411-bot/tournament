@@ -101,4 +101,4 @@ client.on("messageCreate", async (message) => {
 });
 
 // ===== LOGIN =====
-client.login(TOKEN);
+client.login(process.env.TOKEN);
